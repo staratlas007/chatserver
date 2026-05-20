@@ -3,6 +3,7 @@
 
 #include<muduo/net/TcpServer.h>
 #include<muduo/net/EventLoop.h>
+
 using namespace muduo;
 using namespace muduo::net;
 //聊天服务器主类
@@ -16,8 +17,10 @@ public:
     //启动服务
     void start();
 private:
-    //处理链接相关的回调函数
+    //处理链接相关的回调函数 
     void onConnection(const TcpConnectionPtr& conn);
+    
+    //处理消息相关的回调函数
     void onMessage(const TcpConnectionPtr& conn,
                 Buffer* buffer,
                 Timestamp time);

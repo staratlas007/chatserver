@@ -13,6 +13,7 @@ bool GroupModel::createGroup(Group &group)
     {
         if(mysql.update(sql))
         {
+            //mysql_insert_id：获取最后的插入操作生成的自增id
             group.setID(mysql_insert_id(mysql.getConnection()));
             return true;
         }

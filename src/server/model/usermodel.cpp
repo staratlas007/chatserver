@@ -25,6 +25,7 @@ bool UserModel::insert(User &user)
     return false;
 }
 
+//根据用户id查询用户信息
 User UserModel::query(int id)
 {
     //组装sql语句

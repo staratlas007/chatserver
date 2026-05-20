@@ -2,7 +2,7 @@
 	"artifacts" : 
 	[
 		{
-			"path" : "/home/jx/code/bin/ChatServer"
+			"path" : "/home/jx/code/chatserver/bin/ChatServer"
 		}
 	],
 	"backtrace" : 1,
@@ -83,27 +83,27 @@
 			[
 				{
 					"backtrace" : 3,
-					"path" : "/home/jx/code/include"
+					"path" : "/home/jx/code/chatserver/include"
 				},
 				{
 					"backtrace" : 4,
-					"path" : "/home/jx/code/include/server"
+					"path" : "/home/jx/code/chatserver/include/server"
 				},
 				{
 					"backtrace" : 5,
-					"path" : "/home/jx/code/include/server/db"
+					"path" : "/home/jx/code/chatserver/include/server/db"
 				},
 				{
 					"backtrace" : 6,
-					"path" : "/home/jx/code/include/server/model"
+					"path" : "/home/jx/code/chatserver/include/server/model"
 				},
 				{
 					"backtrace" : 7,
-					"path" : "/home/jx/code/thirdparty"
+					"path" : "/home/jx/code/chatserver/thirdparty"
 				},
 				{
 					"backtrace" : 8,
-					"path" : "/home/jx/code/include/server/redis"
+					"path" : "/home/jx/code/chatserver/include/server/redis"
 				}
 			],
 			"language" : "CXX",
