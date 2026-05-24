@@ -66,7 +66,7 @@ MsgHandler ChatService::getHandler(int msgid)
             response["msgid"] = LOGIN_MSG_ACK;
             response["errno"] = 2;
             response["errmsg"] = "您已登录";
-            conn->send(response.dump());
+            conn->send(response.dump() + '\0');
         }
         else
         {
@@ -150,7 +150,7 @@ MsgHandler ChatService::getHandler(int msgid)
                 response["groups"] = groupv;
             }
 
-            conn->send(response.dump());
+            conn->send(response.dump() + '\0');
         }
         
     }  
@@ -161,7 +161,7 @@ MsgHandler ChatService::getHandler(int msgid)
         response["msgid"] = LOGIN_MSG_ACK;
         response["errno"] = 1;
         response["errmsg"] = "用户名或密码错误";
-        conn->send(response.dump());
+        conn->send(response.dump() + '\0');
     }
  }
 
@@ -182,7 +182,7 @@ void ChatService::reg(const TcpConnectionPtr &conn, json &js, Timestamp)
         response["msgid"] = REG_MSG_ACK;
         response["errno"] = 0;
         response["id"] = user.getID();
-        conn->send(response.dump());
+        conn->send(response.dump() + '\0');
     }
     else
     {
@@ -190,7 +190,7 @@ void ChatService::reg(const TcpConnectionPtr &conn, json &js, Timestamp)
         json response;
         response["msgid"] = REG_MSG_ACK;
         response["errno"] = 1;
-        conn->send(response.dump());
+        conn->send(response.dump() + '\0');
     }
 }
 
@@ -242,7 +242,7 @@ void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp)
         if(it != _userConnMap.end())
         {
             //对方在线,转发消息
-            it->second->send(js.dump());
+            it->second->send(js.dump() + '\0');
             return;
         }
     }
@@ -284,7 +284,7 @@ void ChatService::addFriend(const TcpConnectionPtr &conn, json &js, Timestamp)
         response["res"] = "添加好友失败";
     }
 
-    conn->send(response.dump());
+    conn->send(response.dump() + '\0');
 }
 
  //创建群组业务
@@ -316,7 +316,7 @@ void ChatService::createGroup(const TcpConnectionPtr &conn, json &js, Timestamp)
         response["res"] = "建群失败";
     }
 
-    conn->send(response.dump());
+    conn->send(response.dump() + '\0');
 }
 
 //加入群组业务
@@ -337,7 +337,7 @@ void ChatService::addGroup(const TcpConnectionPtr &conn, json &js, Timestamp)
         response["res"] = "加群失败";
     }
     
-    conn->send(response.dump());
+    conn->send(response.dump() + '\0');
 }
 
 //群组聊天业务
@@ -354,7 +354,7 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp)
         if(it != _userConnMap.end())
         {
             //转发群消息
-            it->second->send(js.dump());
+            it->second->send(js.dump() + '\0');
         }
         else
         {
@@ -407,7 +407,7 @@ void ChatService::handleRedisSubscribeMessage(int userid, string msg)
     auto it = _userConnMap.find(userid);
     if (it != _userConnMap.end())
     {
-        it->second->send(msg);
+        it->second->send(msg + '\0');
         return;
     }
 

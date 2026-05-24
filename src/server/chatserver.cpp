@@ -46,12 +46,22 @@ void ChatServer::onMessage(const TcpConnectionPtr& conn,
                             Buffer* buffer,
                             Timestamp time)
 {
-    string buf = buffer -> retrieveAllAsString();
+    //以\0作分隔符解决粘包
+    while (buffer->readableBytes() > 0)
+    {
+        const char* data = buffer->peek();
+        size_t len = buffer->readableBytes();
 
-    //数据的反序列化
-    json js = json::parse(buf);
+        // 查找消息分隔符 \0（发送端用 strlen+1 发送，末尾自带\0）
+        const char* nullPos = static_cast<const char*>(memchr(data, '\0', len));
+        if (nullPos == nullptr) return;  // 半包：消息不完整，等待下次数据到达
 
-    //通过js["msgid"]获取业务handler
-    auto msgHandler = ChatService::instance()->getHandler(js["msgid"].get<int>());
-    msgHandler(conn, js, time);
+        size_t msgLen = nullPos - data;
+        string buf(data, msgLen);             // 提取消息体（不含\0）
+        buffer->retrieve(msgLen + 1);         // 消费：消息体 + \0
+
+        json js = json::parse(buf);
+        auto msgHandler = ChatService::instance()->getHandler(js["msgid"].get<int>());
+        msgHandler(conn, js, time);
+    }
 }
