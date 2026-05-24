@@ -1,114 +1,147 @@
 #include "groupmodel.hpp"
-#include "db.h"
+#include "mysql_prepared_stmt.h"
+#include "connection_pool.h"
 
 //创建群组
-bool GroupModel::createGroup(Group &group)
+bool GroupModel::createGroup(Group& group)
 {   
-    char sql[1024] = {0};
-    sprintf(sql, "insert into AllGroup(groupname, groupdesc) values('%s', '%s')", 
-        group.getName().c_str(),  group.getDesc().c_str());
+    string sql =  "insert into AllGroup(groupname, groupdesc) values(?, ?)";
 
-    MySQL mysql;  
-    if(mysql.connect())
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        if(mysql.update(sql))
-        {
-            //mysql_insert_id：获取最后的插入操作生成的自增id
-            group.setID(mysql_insert_id(mysql.getConnection()));
-            return true;
-        }
+        LOG_ERROR << "获取连接失败";
+        return false;
+    }
+
+    PreparedStmt stmt(conn, sql);
+    stmt.bind_str(1, group.getName());
+    stmt.bind_str(2, group.getDesc());
+
+    if(stmt.execute())
+    {
+        group.setID(stmt.lastInsertId());
+        return true;
     }
 
     return false;
 }
 
 //加入群组
-void GroupModel::addGroup(int userid, int groupid, string role)
+bool GroupModel::addGroup(int userid, int groupid, string role)
 {
-    char sql[1024] = {0};
-    sprintf(sql, "insert into GroupUser values(%d, %d, '%s')", groupid, userid, role.c_str());
+    string sql =  "insert into GroupUser values(?, ?, ?)";
 
-    MySQL mysql;  
-    if(mysql.connect())
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        mysql.update(sql);
+        LOG_ERROR << "获取连接失败";
+        return false;
     }
+
+    PreparedStmt stmt(conn, sql);
+    stmt.bind_int(1, groupid);
+    stmt.bind_int(2, userid);
+    stmt.bind_str(3, role);
+
+    if(stmt.execute())
+    {
+        return true;
+    }
+
+    return false;
 }
 
 //查询用户所在群组信息
 vector<Group> GroupModel::queryGroups(int userid)
 {
-    /*
-    1.先根据userid在groupuser表中查询出用户所属的群组信息
-    2.再根据群组信息查询该群组的所有用户的userid，并且和user表进行多表联合查询，查出用户的详细信息
-    */
-   char sql[1024] = {0};
-   sprintf(sql, "select a.id,a.groupname,a.groupdesc from AllGroup a inner join GroupUser b on a.id = b.groupid where b.userid = %d", userid);
+    vector<Group> groupVec;
 
-   vector<Group> groupVec;
-   MySQL mysql;  
-    if(mysql.connect())
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        MYSQL_RES *res = mysql.query(sql);
-        if(res != nullptr)
-        {
-            MYSQL_ROW row;
-            while((row = mysql_fetch_row(res)) != nullptr)
-            {
-                Group group;
-                group.setID(atoi(row[0]));
-                group.setName(row[1]);
-                group.setDesc(row[2]);
-                groupVec.push_back(group);
-            }
-
-            mysql_free_result(res);
+        LOG_ERROR << "获取连接失败";
+        return groupVec;
+    }
+    
+    // 第一步：查询用户所属的群组信息
+    string sql1 = "select a.id, a.groupname, a.groupdesc from AllGroup a inner join GroupUser b on a.id = b.groupid where b.userid = ?";
+    
+    PreparedStmt stmt1(conn, sql1);
+    stmt1.bind_int(1, userid);
+    
+    if (!stmt1.execute()) {
+        return groupVec;
+    }
+    
+    SimpleResultSet rs1(stmt1.getStmt());
+    
+    while (rs1.next()) {
+        Group group;
+        group.setID(rs1.getInt(0));
+        group.setName(rs1.getString(1));
+        group.setDesc(rs1.getString(2));
+        groupVec.push_back(group);
+    }
+    
+    // 第二步：查询每个群组的成员信息
+    string sql2 = "select a.id, a.name, a.state, b.grouprole from User a inner join GroupUser b on b.userid = a.id where b.groupid = ?";
+    
+    for (Group &group : groupVec) {
+        PreparedStmt stmt2(conn, sql2);
+        stmt2.bind_int(1, group.getID());
+        
+        if (!stmt2.execute()) {
+            continue;  // 跳过失败的群组
+        }
+        
+        SimpleResultSet rs2(stmt2.getStmt());
+        
+        while (rs2.next()) {
+            GroupUser user;
+            user.setID(rs2.getInt(0));
+            user.setName(rs2.getString(1));
+            user.setState(rs2.getString(2));
+            user.setRole(rs2.getString(3));
+            group.getUsers().push_back(user);
         }
     }
 
-    for(Group &group : groupVec)
-    {
-        sprintf(sql, "select a.id,a.name,a.state,b.grouprole from User a inner join GroupUser b on b.userid =a.id where b.groupid = %d", group.getID());
-
-        MYSQL_RES *res = mysql.query(sql);
-        if(res != nullptr)
-        {
-            MYSQL_ROW row;
-            while((row = mysql_fetch_row(res)) != nullptr)
-            {
-                GroupUser user;
-                user.setID(atoi(row[0]));
-                user.setName(row[1]);
-                user.setState(row[2]);
-                user.setRole(row[3]);
-                group.getUsers().push_back(user);
-            }
-            mysql_free_result(res);
-        }
-    }
     return groupVec;
  }
 
 //根据指定groupid查询群组用户id列表，除userid自己，
 vector<int> GroupModel::queryGroupUsers(int userid, int groupid)
 {
-    char sql[1024] = {0};
-    sprintf(sql, "select userid from GroupUser where groupid = %d and userid != %d", groupid, userid);
+    string sql = "select userid from GroupUser where groupid = ? and userid != ?";
 
     vector<int> idVec;
-    MySQL mysql;
-    if(mysql.connect())
+
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        MYSQL_RES *res = mysql.query(sql);
-        if(res != nullptr)
-        {
-            MYSQL_ROW row;
-            while((row = mysql_fetch_row(res)) != nullptr)
-            {
-                idVec.push_back(atoi(row[0]));
-            }
-            mysql_free_result(res);
-        }
+        LOG_ERROR << "获取连接失败";
+        return idVec;
     }
+
+    PreparedStmt stmt(conn, sql);
+    stmt.bind_int(1, groupid);
+    stmt.bind_int(2, userid);
+
+    if(!stmt.execute())
+    {
+        return idVec;
+    }
+
+    SimpleResultSet srs(stmt.getStmt());
+    while(srs.next())
+    {
+        idVec.push_back(srs.getInt(0));
+    }
+
     return idVec;
 }

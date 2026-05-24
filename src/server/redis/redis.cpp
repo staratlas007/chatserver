@@ -3,9 +3,11 @@
 using namespace std;
 
 Redis::Redis()
-    : _publish_context(nullptr), _subcribe_context(nullptr)
+    : _subcribe_context(nullptr)
 {
 }
+
+thread_local redisContext* Redis::_publish_context = nullptr;
 
 Redis::~Redis()
 {
@@ -39,9 +41,7 @@ bool Redis::connect()
     }
 
     // 在单独的线程中，监听通道上的事件，有消息给业务层进行上报
-    thread t([&]() {
-        observer_channel_message();
-    });
+    thread t([&]() { observer_channel_message();});
     t.detach();
 
     cout << "connect redis-server success!" << endl;
@@ -49,10 +49,29 @@ bool Redis::connect()
     return true;
 }
 
+//获取当前线程的_publish_context
+redisContext* Redis::getPublishContext()
+{
+    if (!_publish_context)
+    {
+        _publish_context = redisConnect("127.0.0.1", 6379);
+        if (!_publish_context || _publish_context->err)
+        {
+            delete _publish_context;
+            _publish_context = nullptr;
+            return nullptr;
+        }
+    }
+    return _publish_context;
+}
+
 // 向redis指定的通道channel发布消息
 bool Redis::publish(int channel, string message)
 {
-    redisReply *reply = (redisReply *)redisCommand(_publish_context, "PUBLISH %d %s", channel, message.c_str());
+    redisContext* pc = getPublishContext();
+    if (!pc) return false;
+
+    redisReply *reply = (redisReply *)redisCommand(pc, "PUBLISH %d %s", channel, message.c_str());
     if (nullptr == reply)
     {
         cerr << "publish command failed!" << endl;
@@ -73,6 +92,7 @@ bool Redis::subscribe(int channel)
         cerr << "subscribe command failed!" << endl;
         return false;
     }
+
     // redisBufferWrite可以循环发送缓冲区，直到缓冲区数据发送完毕（done被置为1）
     int done = 0;
     while (!done)
@@ -132,3 +152,4 @@ void Redis::init_notify_handler(function<void(int,string)> fn)
 {
     this->_notify_message_handler = fn;
 }
+

@@ -1,5 +1,6 @@
 #include "chatserver.hpp"
 #include "chatservice.hpp"
+#include "connection_pool.h"
 #include <iostream>
 #include <signal.h>
 
@@ -17,6 +18,14 @@ int main(int argc, char **argv)
     if (argc < 3)
     {
         cerr << "command invalid! example: ./ChatServer 127.0.0.1 6000" << endl;
+        exit(-1);
+    }
+
+    // 初始化数据库连接池
+    if (!ConnectionPool::instance()->init(
+            "127.0.0.1", "root", "123456", "chat", 3306, 8))
+    {
+        cerr << "数据库连接池初始化失败" << endl;
         exit(-1);
     }
 

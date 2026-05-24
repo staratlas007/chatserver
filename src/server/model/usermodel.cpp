@@ -1,25 +1,32 @@
 #include "usermodel.hpp"
-#include "db.h"
-#include <iostream>
-using namespace std;
+#include "mysql_prepared_stmt.h"
+#include "bcrypt/BCrypt.hpp"
+#include "connection_pool.h"
 
 //User表的增加方法
-bool UserModel::insert(User &user)
+bool UserModel::insert(User& user)
 {
-    //组装sql语句
-    char sql[1024] = {0};
-    sprintf(sql, "insert into User(name, password, state) values('%s', '%s', '%s')", 
-        user.getName().c_str(), user.getPwd().c_str(), user.getState().c_str());
+    string sql = "insert into User(name, password, state) values(?, ?, ?)";
+    
+    string hashpwd = BCrypt::generateHash(user.getPwd());
 
-    MySQL mysql;  
-    if(mysql.connect())
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        if(mysql.update(sql))
-        {
-            //获取生成的主键id
-            user.setID(mysql_insert_id(mysql.getConnection()));
-            return true;
-        }
+        LOG_ERROR << "获取连接失败";
+        return false;
+    }
+
+    PreparedStmt stmt(conn, sql);
+    stmt.bind_str(1, user.getName());
+    stmt.bind_str(2, hashpwd);
+    stmt.bind_str(3, user.getState());
+
+    if(stmt.execute())
+    {
+        user.setID(stmt.lastInsertId());
+        return true;
     }
 
     return false;
@@ -28,61 +35,76 @@ bool UserModel::insert(User &user)
 //根据用户id查询用户信息
 User UserModel::query(int id)
 {
-    //组装sql语句
-    char sql[1024] = {0};
-    sprintf(sql, "select * from User where id = %d", id);
+    string sql = "select * from User where id = ?";
 
-    MySQL mysql;  
-    if(mysql.connect())
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        MYSQL_RES *res = mysql.query(sql);
-        if(res != nullptr)
-        {
-            MYSQL_ROW row = mysql_fetch_row(res);
-            if(row !=nullptr)
-            {
-                User user;
-                user.setID(atoi(row[0]));
-                user.setName(row[1]);
-                user.setPwd(row[2]);
-                user.setState(row[3]);
-                mysql_free_result(res);
-                return user;
-            }
-        }
+        LOG_ERROR << "获取连接失败";
+        return User();
+    }
+
+    PreparedStmt stmt(conn, sql);
+    stmt.bind_int(1, id);
+
+    if(!stmt.execute())
+    {
+        return User();
+    }
+
+    SimpleResultSet srs(stmt.getStmt());
+
+    if(srs.next())
+    {
+        User user;
+        user.setID(srs.getInt(0));      
+        user.setName(srs.getString(1)); 
+        user.setPwd(srs.getString(2));   
+        user.setState(srs.getString(3));
+        return user;
     }
 
     return User();
 }
 
 //更新用户状态信息
-bool UserModel::updateState(User user)
+void UserModel::updateState(User& user)
 {
-    //组装sql语句
-    char sql[1024] = {0};
-    sprintf(sql, "update User set state = '%s' where id = %d", user.getState().c_str(), user.getID());
-
-    MySQL mysql;  
-    if(mysql.connect())
+    string sql = "update User set state = ? where id = ?";
+    
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        if(mysql.update(sql))
-        {
-            return true;
-        }
+        LOG_ERROR << "获取连接失败";
+        return;
     }
-    return false;
+    
+    PreparedStmt stmt(conn, sql);
+    stmt.bind_str(1, user.getState());   
+    stmt.bind_int(2, user.getID());      
+    stmt.execute();
+
+    return;
 }
 
  //重置用户状态信息
 void UserModel::resetState()
 {                                                                                                                           
-    //组装sql语句
-    char sql[1024] = {0};
-    sprintf(sql, "update User set state = 'offline' where state = 'online'");
+    string sql = "update User set state = 'offline' where state = 'online'";
 
-    MySQL mysql;  
-    if(mysql.connect())
+    ConnectionGuard guard(ConnectionPool::instance());  
+    MYSQL* conn = guard.get();
+    if(!conn)
     {
-        mysql.update(sql);
+        LOG_ERROR << "获取连接失败";
+        return;
     }
+    PreparedStmt stmt(conn, sql);
+
+    stmt.execute();
+
+    return;
 }
+

@@ -6,11 +6,11 @@
 #include "friendmodel.hpp"
 #include "groupmodel.hpp"
 #include "redis.hpp"
+#include "usermodel.hpp"
 
 #include <muduo/net/TcpConnection.h>
 #include <unordered_map>
 #include <functional>
-#include <usermodel.hpp>
 #include <mutex>
 
 using namespace std;

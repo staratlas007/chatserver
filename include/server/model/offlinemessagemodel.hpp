@@ -9,10 +9,10 @@ class OfflineMsgModel
 {
 public:
     //存储离线消息
-    void insert(int userid, string msg);
+    bool insert(int userid, string msg);
 
     //删除离线消息
-    void remove(int userid);
+    bool remove(int userid);
 
     //查询用户的离线消息
     vector<string> query(int userid);

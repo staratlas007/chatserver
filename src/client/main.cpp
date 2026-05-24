@@ -184,7 +184,7 @@ void doRegResponse(json &responsejs)
 {
     if (0 != responsejs["errno"].get<int>()) // 注册失败
     {
-        cerr << "name is already exist, register error!" << endl;
+        cerr << "register error!" << endl;
     }
     else // 注册成功
     {
@@ -326,6 +326,11 @@ void readTaskHandler(int clientfd)
             doRegResponse(js);
             sem_post(&rwsem);    // 通知主线程，注册结果处理完成
             continue;
+        }
+
+        if (RESPONSE == msgtype)
+        {
+            cout << js["res"] << endl;
         }
     }
 }

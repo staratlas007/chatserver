@@ -1,7 +1,9 @@
 #include "chatservice.hpp"
 #include "public.hpp"
+#include "bcrypt/BCrypt.hpp"
 #include <muduo/base/Logging.h>
 #include <vector>
+#include <iostream>
 using namespace muduo;
 using namespace placeholders;
 using namespace std;
@@ -41,23 +43,21 @@ MsgHandler ChatService::getHandler(int msgid)
     {
         //返回一个默认的处理器
         return [=](const TcpConnectionPtr &conn, json &js, Timestamp) {
-            LOG_ERROR << "msgid:" << msgid << " can not find handler";
+            LOG_ERROR << "msgid:" << msgid << " 找不到对应的处理器";
         };
     }
-    else
-    {
-        return _msgHandlerMap[msgid];
-    }
+    return it->second;
 }
 
 //处理登录业务
  void ChatService::login(const TcpConnectionPtr &conn, json &js, Timestamp)
  {
-    int id = js["id"];
+    int id = js["id"].get<int>();
     string pwd = js["password"];
 
     User user = _usermodel.query(id);
-    if(user.getID() == id && user.getPwd() == pwd)
+    bool pwdcheck = BCrypt::validatePassword(pwd, user.getPwd());
+    if(user.getID() == id && pwdcheck)
     {
         if(user.getState() == "online")
         {
@@ -95,7 +95,14 @@ MsgHandler ChatService::getHandler(int msgid)
             {
                 response["offlinemsg"] = vec;
                 //读取离线消息后，删除离线消息
-                _offlineMsgModel.remove(id);
+                if(_offlineMsgModel.remove(id))
+                {
+                    LOG_INFO<< "删除离线消息成功";
+                }
+                else
+                {
+                    LOG_ERROR << "删除离线消息失败";
+                }
             }
 
             //查询该用户的好友信息并返回
@@ -132,9 +139,9 @@ MsgHandler ChatService::getHandler(int msgid)
                         json js1;
                         js1["id"] = user.getID();
                         js1["name"] = user.getName();
-                        js["staet"] = user.getState();
-                        js["role"] = user.getRole();
-                        userv.push_back(js.dump());
+                        js1["state"] = user.getState();
+                        js1["role"] = user.getRole();
+                        userv.push_back(js1.dump());
                     }
 
                     js["users"] = userv;
@@ -248,7 +255,14 @@ void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp)
     }
 
     //对方不在线,存储离线消息
-    _offlineMsgModel.insert(toid, js.dump());
+    if(_offlineMsgModel.insert(toid, js.dump()))
+    {
+        LOG_INFO << "离线消息存储成功";
+    }
+    else
+    {
+        LOG_ERROR << "离线消息存储失败";
+    }
 }
 
 //添加好友业务
@@ -257,8 +271,20 @@ void ChatService::addFriend(const TcpConnectionPtr &conn, json &js, Timestamp)
     int userid = js["id"].get<int>();
     int friendid = js["friendid"].get<int>();
 
-    //存储好友信息
-    _friendModel.insert(userid, friendid);
+    json response;
+
+    if (_friendModel.insert(userid, friendid))
+    {
+        response["msgid"] = RESPONSE;
+        response["res"] = "添加好友成功";
+    }
+    else
+    {
+        response["msgid"] = RESPONSE;
+        response["res"] = "添加好友失败";
+    }
+
+    conn->send(response.dump());
 }
 
  //创建群组业务
@@ -268,11 +294,29 @@ void ChatService::createGroup(const TcpConnectionPtr &conn, json &js, Timestamp)
     string name = js["groupname"];
     string desc = js["groupdesc"];
 
+    json response;
+
     Group group(-1, name, desc);
     if(_groupModel.createGroup(group))
     {
-        _groupModel.addGroup(userid, group.getID(), "creator");
+        if(_groupModel.addGroup(userid, group.getID(), "creator"))
+        {
+            response["msgid"] = RESPONSE;
+            response["res"] = "建群成功，您以成为群主";
+        }
+        else
+        {
+            response["msgid"] = RESPONSE;
+            response["res"] = "建群成功，但您不在群内";
+        }
     }
+    else
+    {
+        response["msgid"] = RESPONSE;
+        response["res"] = "建群失败";
+    }
+
+    conn->send(response.dump());
 }
 
 //加入群组业务
@@ -280,10 +324,23 @@ void ChatService::addGroup(const TcpConnectionPtr &conn, json &js, Timestamp)
 {
     int userid = js["id"].get<int>();
     int groupid = js["groupid"];
-    _groupModel.addGroup(userid, groupid, "normal");
+
+    json response;
+    if(_groupModel.addGroup(userid, groupid, "normal"))
+    {
+        response["msgid"] = RESPONSE;
+        response["res"] = "加群成功";
+    }
+    else
+    {
+        response["msgid"] = RESPONSE;
+        response["res"] = "加群失败";
+    }
+    
+    conn->send(response.dump());
 }
 
-    //群组聊天业务
+//群组聊天业务
 void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp)
 {
     int userid = js["id"].get<int>();
@@ -310,7 +367,14 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp)
             else
             {
                 //存储离线消息
-                _offlineMsgModel.insert(id, js.dump());
+                if(_offlineMsgModel.insert(id, js.dump()))
+                {
+                    LOG_INFO << "离线消息存储成功";
+                }
+                else
+                {
+                    LOG_ERROR << "离线消息存储失败";
+                }
             }
         }
     }
@@ -348,5 +412,13 @@ void ChatService::handleRedisSubscribeMessage(int userid, string msg)
     }
 
     // 存储该用户的离线消息
-    _offlineMsgModel.insert(userid, msg);
+    if(_offlineMsgModel.insert(userid, msg))
+    {
+        LOG_INFO << "离线消息存储成功";
+    }
+    else
+    {
+        LOG_ERROR << "离线消息存储失败";
+    }
+
 }

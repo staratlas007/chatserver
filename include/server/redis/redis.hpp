@@ -6,10 +6,6 @@
 #include <functional>
 using namespace std;
 
-/*
-redis作为集群服务器通信的基于发布-订阅消息队列时，会遇到两个难搞的bug问题，参考博客详细描述：
-https://blog.csdn.net/QIANGWEIYUAN/article/details/97895611
-*/
 class Redis
 {
 public:
@@ -34,9 +30,12 @@ public:
     // 初始化向业务层上报通道消息的回调对象
     void init_notify_handler(function<void(int, string)> fn);
 
+    //获取当前线程的_publish_context
+    redisContext* getPublishContext();
+
 private:
     // hiredis同步上下文对象，负责publish消息
-    redisContext *_publish_context;
+    static thread_local redisContext* _publish_context;
 
     // hiredis同步上下文对象，负责subscribe消息
     redisContext *_subcribe_context;
