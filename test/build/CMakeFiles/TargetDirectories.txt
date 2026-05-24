@@ -1,3 +1,0 @@
-/home/jx/code/muduotest/build/CMakeFiles/rebuild_cache.dir
-/home/jx/code/muduotest/build/CMakeFiles/edit_cache.dir
-/home/jx/code/muduotest/build/CMakeFiles/server.dir

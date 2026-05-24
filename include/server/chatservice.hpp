@@ -7,6 +7,7 @@
 #include "groupmodel.hpp"
 #include "redis.hpp"
 #include "usermodel.hpp"
+#include "threadpool.hpp"
 
 #include <muduo/net/TcpConnection.h>
 #include <unordered_map>
@@ -81,6 +82,8 @@ private:
     unordered_map<int, TcpConnectionPtr> _userConnMap;
 
     Redis _redis;
+
+    ThreadPool _threadPool;
 
 
 };

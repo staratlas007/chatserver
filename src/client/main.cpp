@@ -298,9 +298,9 @@ void readTaskHandler(int clientfd)
         {
             string payload(recvBuf, 0, pos);     // 取出一条完整消息
             recvBuf.erase(0, pos + 1);           // 从缓冲区移除
-            
+
             // 接收ChatServer转发的数据，反序列化生成json数据对象
-            json js = json::parse(buffer);
+            json js = json::parse(payload);
             int msgtype = js["msgid"].get<int>();
             if (ONE_CHAT_MSG == msgtype)
             {

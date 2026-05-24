@@ -1,7 +1,9 @@
 #include "chatservice.hpp"
 #include "public.hpp"
 #include "bcrypt/BCrypt.hpp"
+
 #include <muduo/base/Logging.h>
+#include <muduo/net/EventLoop.h>
 #include <vector>
 #include <iostream>
 using namespace muduo;
@@ -16,7 +18,7 @@ ChatService* ChatService::instance()
 }
 
 //注册消息以及对应的Handler回调操作
-ChatService::ChatService()
+ChatService::ChatService():_threadPool(4)
 {
     _msgHandlerMap.insert({LOGIN_MSG, std::bind(&ChatService::login, this, _1, _2, _3)});
     _msgHandlerMap.insert({REG_MSG, std::bind(&ChatService::reg, this, _1, _2, _3)});
@@ -31,7 +33,6 @@ ChatService::ChatService()
     {
         _redis.init_notify_handler(std::bind(&ChatService::handleRedisSubscribeMessage, this, _1, _2));
     }
-
 }
 
 //获取消息对应的处理器
@@ -51,119 +52,131 @@ MsgHandler ChatService::getHandler(int msgid)
 
 //处理登录业务
  void ChatService::login(const TcpConnectionPtr &conn, json &js, Timestamp)
- {
+{
     int id = js["id"].get<int>();
     string pwd = js["password"];
 
     User user = _usermodel.query(id);
-    bool pwdcheck = BCrypt::validatePassword(pwd, user.getPwd());
-    if(user.getID() == id && pwdcheck)
-    {
-        if(user.getState() == "online")
+
+    EventLoop* loop = conn->getLoop();
+    _threadPool.enqueue([this, conn, loop, id, pwd, user]() mutable {
+        bool pwdcheck = BCrypt::validatePassword(pwd, user.getPwd());
+
+        if(!(user.getID() == id && pwdcheck))
         {
-            //用户已登陆，禁止重复登陆
-            json response;
-            response["msgid"] = LOGIN_MSG_ACK;
-            response["errno"] = 2;
-            response["errmsg"] = "您已登录";
-            conn->send(response.dump() + '\0');
+            loop->runInLoop([this, conn]() {
+                json response;
+                response["msgid"] = LOGIN_MSG_ACK;
+                response["errno"] = 1;
+                response["errmsg"] = "用户名或密码错误";
+                conn->send(response.dump() + '\0');
+            });
+            return;
         }
-        else
+
+        user.setState("online");
+        _usermodel.updateState(user);
+
+        // 离线消息 (DB 读 + 删)
+        vector<string> vec = _offlineMsgModel.query(id);
+        bool hasOff = !vec.empty();
+        if(hasOff)
         {
-            //登陆成功，记录用户连接信息
+            _offlineMsgModel.remove(id);
+        }
+
+        // 好友列表 (DB 读)
+        vector<User> userVec = _friendModel.query(id);
+        vector<string> vec2;  // 提前序列化, 不在 I/O 线程做
+        if(!userVec.empty())
+        {
+            for(User &user : userVec)
+            {
+                json js;
+                js["id"] = user.getID();
+                js["name"] = user.getName();
+                js["state"] = user.getState();
+                vec2.push_back(js.dump());
+            }
+        }
+
+        // 群组列表 (DB 读)
+        vector<Group> groupuserVec = _groupModel.queryGroups(id);
+        vector<string> groupv;  // 提前序列化
+        if(!groupuserVec.empty())
+        {
+            for(Group &group : groupuserVec)
+            {
+                json js;
+                js["id"] = group.getID();
+                js["groupname"] = group.getName();
+                js["groupdesc"] = group.getDesc();
+
+                vector<string> userv;
+                for(GroupUser &user : group.getUsers())
+                {
+                    json js1;
+                    js1["id"] = user.getID();
+                    js1["name"] = user.getName();
+                    js1["state"] = user.getState();
+                    js1["role"] = user.getRole();
+                    userv.push_back(js1.dump());
+                }
+
+                js["users"] = userv;
+                groupv.push_back(js.dump());
+            }
+        }
+
+        loop->runInLoop([this, conn, id, user, hasOff, vec, vec2, groupv]() mutable{
             {
                 lock_guard<mutex> lock(_connMutex);
+                auto it = _userConnMap.find(id);
+                if(it != _userConnMap.end())
+                {
+                    //用户已登陆，禁止重复登陆
+                    json response;
+                    response["msgid"] = LOGIN_MSG_ACK;
+                    response["errno"] = 2;
+                    response["errmsg"] = "您已登录";
+                    conn->send(response.dump() + '\0');
+                    return;
+                }
+                //登陆成功，记录用户连接信息
                 _userConnMap.insert({id, conn});
             }
-            
+
             //id用户登录成功后，向redis订阅channel
             _redis.subscribe(id);
-
-            //登陆成功,修改登录状态  
-            user.setState("online");
-            _usermodel.updateState(user);
 
             json response;
             response["msgid"] = LOGIN_MSG_ACK;
             response["errno"] = 0;
             response["id"] = user.getID();
             response["name"] = user.getName();
-            
-            //登陆成功后查询该用户是否有离线消息
-            vector<string> vec = _offlineMsgModel.query(id);
-            if(!vec.empty())
+
+            //离线消息 (数据已在 Worker 序列化好)
+            if(hasOff)
             {
                 response["offlinemsg"] = vec;
-                //读取离线消息后，删除离线消息
-                if(_offlineMsgModel.remove(id))
-                {
-                    LOG_INFO<< "删除离线消息成功";
-                }
-                else
-                {
-                    LOG_ERROR << "删除离线消息失败";
-                }
             }
 
-            //查询该用户的好友信息并返回
-            vector<User> userVec = _friendModel.query(id);
-            if(!userVec.empty())
+            //好友列表 (数据已在 Worker 序列化好)
+            if(!vec2.empty())
             {
-                vector<string> vec2;
-                for(User &user : userVec)
-                {
-                    json js;
-                    js["id"] = user.getID();
-                    js["name"] = user.getName();
-                    js["state"] = user.getState();
-                    vec2.push_back(js.dump());  
-                }
                 response["friends"] = vec2;
             }
 
-            //查询用户的群组信息
-            vector<Group> groupuserVec = _groupModel.queryGroups(id);
-            if(!groupuserVec.empty())
+            //群组列表 (数据已在 Worker 序列化好)
+            if(!groupv.empty())
             {
-                vector<string> groupv;
-                for(Group &group : groupuserVec)
-                {
-                    json js;
-                    js["id"] = group.getID();
-                    js["groupname"] = group.getName();
-                    js["groupdesc"] = group.getDesc();
-
-                    vector<string> userv;
-                    for(GroupUser &user : group.getUsers())
-                    {
-                        json js1;
-                        js1["id"] = user.getID();
-                        js1["name"] = user.getName();
-                        js1["state"] = user.getState();
-                        js1["role"] = user.getRole();
-                        userv.push_back(js1.dump());
-                    }
-
-                    js["users"] = userv;
-                    groupv.push_back(js.dump());  
-                }
                 response["groups"] = groupv;
             }
 
             conn->send(response.dump() + '\0');
-        }
-        
-    }  
-    else
-    {
-        //用户不存在，登陆失败
-        json response;
-        response["msgid"] = LOGIN_MSG_ACK;
-        response["errno"] = 1;
-        response["errmsg"] = "用户名或密码错误";
-        conn->send(response.dump() + '\0');
-    }
- }
+        });
+    });
+}
 
  //处理注册业务
 void ChatService::reg(const TcpConnectionPtr &conn, json &js, Timestamp)
@@ -362,7 +375,7 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp)
             if(user.getState() == "online")
             {
                 _redis.publish(id, js.dump());
-                return;
+                continue;
             }
             else
             {
@@ -378,6 +391,8 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp)
             }
         }
     }
+
+    return;
 }
 
 //处理登出

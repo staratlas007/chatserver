@@ -21,7 +21,7 @@ add_subdirectory(thirdparty/libbcrypt)
 
 #加载子目录
 add_subdirectory(src)
-
+add_subdirectory(test)
 
 
 
