@@ -287,51 +287,56 @@ void doLoginResponse(json &responsejs)
 // 子线程 - 接收线程
 void readTaskHandler(int clientfd)
 {
+    string recvBuf;  // 持久化缓冲区
+    char buffer[1024];
     for (;;)
     {
-        char buffer[1024] = {0};
-        int len = recv(clientfd, buffer, 1024, 0);  // 阻塞了
-        if (-1 == len || 0 == len)
+        int len = recv(clientfd, buffer, 1024, 0);  
+        recvBuf.append(buffer, len);
+        size_t pos = 0;
+        while ((pos = recvBuf.find('\0')) != string::npos)
         {
-            close(clientfd);
-            exit(-1);
+            string payload(recvBuf, 0, pos);     // 取出一条完整消息
+            recvBuf.erase(0, pos + 1);           // 从缓冲区移除
+            
+            // 接收ChatServer转发的数据，反序列化生成json数据对象
+            json js = json::parse(buffer);
+            int msgtype = js["msgid"].get<int>();
+            if (ONE_CHAT_MSG == msgtype)
+            {
+                cout << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
+                    << " said: " << js["msg"].get<string>() << endl;
+                continue;
+            }
+
+            if (GROUP_CHAT_MSG == msgtype)
+            {
+                cout << "群消息[" << js["groupid"] << "]:" << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
+                    << " said: " << js["msg"].get<string>() << endl;
+                continue;
+            }
+
+            if (LOGIN_MSG_ACK == msgtype)
+            {
+                doLoginResponse(js); // 处理登录响应的业务逻辑
+                sem_post(&rwsem);    // 通知主线程，登录结果处理完成
+                continue;
+            }
+
+            if (REG_MSG_ACK == msgtype)
+            {
+                doRegResponse(js);
+                sem_post(&rwsem);    // 通知主线程，注册结果处理完成
+                continue;
+            }
+
+            if (RESPONSE == msgtype)
+            {
+                cout << js["res"] << endl;
+            }  
         }
 
-        // 接收ChatServer转发的数据，反序列化生成json数据对象
-        json js = json::parse(buffer);
-        int msgtype = js["msgid"].get<int>();
-        if (ONE_CHAT_MSG == msgtype)
-        {
-            cout << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
-                 << " said: " << js["msg"].get<string>() << endl;
-            continue;
-        }
-
-        if (GROUP_CHAT_MSG == msgtype)
-        {
-            cout << "群消息[" << js["groupid"] << "]:" << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
-                 << " said: " << js["msg"].get<string>() << endl;
-            continue;
-        }
-
-        if (LOGIN_MSG_ACK == msgtype)
-        {
-            doLoginResponse(js); // 处理登录响应的业务逻辑
-            sem_post(&rwsem);    // 通知主线程，登录结果处理完成
-            continue;
-        }
-
-        if (REG_MSG_ACK == msgtype)
-        {
-            doRegResponse(js);
-            sem_post(&rwsem);    // 通知主线程，注册结果处理完成
-            continue;
-        }
-
-        if (RESPONSE == msgtype)
-        {
-            cout << js["res"] << endl;
-        }
+        
     }
 }
 
