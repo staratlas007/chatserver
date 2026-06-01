@@ -1,0 +1,1 @@
+bin/ 应包含bcrypt_test  ChatClient  ChatServer  Test
