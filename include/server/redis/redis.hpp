@@ -4,6 +4,7 @@
 #include <hiredis/hiredis.h>
 #include <thread>
 #include <functional>
+#include <mutex>
 using namespace std;
 
 class Redis
@@ -39,6 +40,9 @@ private:
 
     // hiredis同步上下文对象，负责subscribe消息
     redisContext *_subcribe_context;
+
+    // 保护_subcribe_context的互斥锁（hiredis的redisContext非线程安全）
+    mutex _subscribe_mutex;
 
     // 回调操作，收到订阅的消息，给service层上报
     function<void(int, string)> _notify_message_handler;

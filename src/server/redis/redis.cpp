@@ -1,5 +1,6 @@
 #include "redis.hpp"
 #include <iostream>
+#include <cstring>
 using namespace std;
 
 Redis::Redis()
@@ -57,7 +58,7 @@ redisContext* Redis::getPublishContext()
         _publish_context = redisConnect("127.0.0.1", 6379);
         if (!_publish_context || _publish_context->err)
         {
-            delete _publish_context;
+            redisFree(_publish_context);
             _publish_context = nullptr;
             return nullptr;
         }
@@ -87,9 +88,10 @@ bool Redis::subscribe(int channel)
     // SUBSCRIBE命令本身会造成线程阻塞等待通道里面发生消息，这里只做订阅通道，不接收通道消息
     // 通道消息的接收专门在observer_channel_message函数中的独立线程中进行
     // 只负责发送命令，不阻塞接收redis server响应消息，否则和notifyMsg线程抢占响应资源
+    lock_guard<mutex> lock(_subscribe_mutex);
     if (REDIS_ERR == redisAppendCommand(this->_subcribe_context, "SUBSCRIBE %d", channel))
     {
-        cerr << "subscribe command failed!" << endl;
+        cerr << "subscribe append failed! err=" << _subcribe_context->err << endl;
         return false;
     }
 
@@ -99,7 +101,7 @@ bool Redis::subscribe(int channel)
     {
         if (REDIS_ERR == redisBufferWrite(this->_subcribe_context, &done))
         {
-            cerr << "subscribe command failed!" << endl;
+             cerr << "subscribe bufferWrite failed! err=" << _subcribe_context->err << endl;
             return false;
         }
     }
@@ -111,6 +113,7 @@ bool Redis::subscribe(int channel)
 // 向redis指定的通道unsubscribe取消订阅消息
 bool Redis::unsubscribe(int channel)
 {
+    lock_guard<mutex> lock(_subscribe_mutex);
     if (REDIS_ERR == redisAppendCommand(this->_subcribe_context, "UNSUBSCRIBE %d", channel))
     {
         cerr << "unsubscribe command failed!" << endl;
@@ -135,11 +138,18 @@ void Redis::observer_channel_message()
     redisReply *reply = nullptr;
     while (REDIS_OK == redisGetReply(this->_subcribe_context, (void **)&reply))
     {
-        // 订阅收到的消息是一个带三元素的数组
-        if (reply != nullptr && reply->element[2] != nullptr && reply->element[2]->str != nullptr)
+        // 订阅收到的消息是一个带三元素的数组(消息类型，通道名，消息内容)
+        if (reply != nullptr
+            && reply->type == REDIS_REPLY_ARRAY
+            && reply->elements >= 3
+            && reply->element[0] != nullptr
+            && reply->element[0]->str != nullptr
+            && strcmp(reply->element[0]->str, "message") == 0
+            && reply->element[2] != nullptr
+            && reply->element[2]->str != nullptr)
         {
             // 给业务层上报通道上发生的消息
-            _notify_message_handler(atoi(reply->element[1]->str) , reply->element[2]->str);
+            _notify_message_handler(atoi(reply->element[1]->str), reply->element[2]->str);
         }
 
         freeReplyObject(reply);
