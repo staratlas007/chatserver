@@ -39,8 +39,8 @@ MYSQL* ConnectionPool::createConnection()
     MYSQL* conn = mysql_init(nullptr);
     if (!conn) return nullptr;
 
-    // 设置自动重连
-    bool reconnect = 1;
+    // 禁用自动重连
+    bool reconnect = 0;
     mysql_options(conn, MYSQL_OPT_RECONNECT, &reconnect);
 
     // 设置连接超时

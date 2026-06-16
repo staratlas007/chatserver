@@ -8,7 +8,7 @@ bool UserModel::insert(User& user)
 {
     string sql = "insert into User(name, password, state) values(?, ?, ?)";
     
-    string hashpwd = BCrypt::generateHash(user.getPwd());
+    string hashpwd = BCrypt::generateHash(user.getPwd(),6);
 
     ConnectionGuard guard(ConnectionPool::instance());  
     MYSQL* conn = guard.get();

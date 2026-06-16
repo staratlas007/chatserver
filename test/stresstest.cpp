@@ -42,12 +42,11 @@
 #include <iostream>
 #include <iomanip>
 
-// ── 单文件内嵌 nlohmann/json ────────────────────────────────────
+// 单文件内嵌 nlohmann/json
 #include "json.hpp"
 
-// ══════════════════════════════════════════════════════════════════
 // 消息类型 (与服务端 public.hpp 保持一致)
-// ══════════════════════════════════════════════════════════════════
+
 enum MsgType : int {
     LOGIN_MSG       = 1,
     LOGIN_MSG_ACK   = 2,
@@ -62,9 +61,7 @@ enum MsgType : int {
     RESPONSE        = 11,
 };
 
-// ══════════════════════════════════════════════════════════════════
 // 统计模块
-// ══════════════════════════════════════════════════════════════════
 struct LatencyRecorder {
     std::vector<double> samples;
     void record(double ms) { samples.push_back(ms); }
