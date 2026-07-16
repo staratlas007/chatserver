@@ -263,8 +263,35 @@ void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp)
     User user = _usermodel.query(toid);
     if(user.getState() == "online")
     {
-        _redis.publish(toid, js.dump());
-        return;
+        redisContext* ctx = _redis.getPublishContext();
+        bool redisAvailable = (ctx != nullptr && ctx->fd != -1 && ctx->err == 0);
+
+        if (redisAvailable)
+        {
+            bool published = _redis.publish(toid, js.dump());
+            if (published)
+            {
+                LOG_INFO << "publish成功" ;
+                return;
+            }
+            LOG_WARN << "publish失败，降级到离线存储"; 
+        }
+        else
+        {
+            LOG_WARN << "Redis不可用 (fd=" << (ctx ? ctx->fd : -1) 
+                     << ", err=" << (ctx ? ctx->err : -1) 
+                     << "), 降级到离线缓存 ";
+        }
+
+        if(_offlineMsgModel.insert(toid, js.dump()))
+        {
+            LOG_INFO << "离线消息存储成功";
+        }
+        else
+        {
+            LOG_ERROR << "离线消息存储失败";
+        }
+
     }
 
     //对方不在线,存储离线消息
@@ -374,8 +401,34 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp)
             User user = _usermodel.query(id);
             if(user.getState() == "online")
             {
-                _redis.publish(id, js.dump());
-                continue;
+                redisContext* ctx = _redis.getPublishContext();
+                bool redisAvailable = (ctx != nullptr && ctx->fd != -1 && ctx->err == 0);
+
+                if (redisAvailable)
+                {
+                    bool published = _redis.publish(id, js.dump());
+                    if (published)
+                    {
+                        LOG_INFO << "publish成功" ;
+                        return;
+                    }
+                    LOG_WARN << "publish失败，降级到离线存储"; 
+                }
+                else
+                {
+                    LOG_WARN << "Redis不可用 (fd=" << (ctx ? ctx->fd : -1) 
+                            << ", err=" << (ctx ? ctx->err : -1) 
+                            << "), 降级到离线缓存 ";
+                }
+
+                if(_offlineMsgModel.insert(id, js.dump()))
+                {
+                    LOG_INFO << "离线消息存储成功";
+                }
+                else
+                {
+                    LOG_ERROR << "离线消息存储失败";
+                }
             }
             else
             {
