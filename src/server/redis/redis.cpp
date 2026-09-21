@@ -78,8 +78,19 @@ bool Redis::publish(int channel, string message)
         cerr << "publish command failed!" << endl;
         return false;
     }
+
+    bool ok = false;
+    if (reply->type == REDIS_REPLY_ERROR)
+    {
+        cerr << "publish error: " << reply->str << endl;
+    }
+    else if (reply->type == REDIS_REPLY_INTEGER && reply->integer > 0)
+    {
+        ok = true;
+    }
+
     freeReplyObject(reply);
-    return true;
+    return ok;
 }
 
 // 向redis指定的通道subscribe订阅消息
